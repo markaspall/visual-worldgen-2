@@ -1,92 +1,88 @@
 /**
  * Chunk API Routes V2
- * Multi-resolution GPU pipeline
+ * Unified node-based pipeline
  */
 
 import express from 'express';
 import fs from 'fs/promises';
 import path from 'path';
-import { create, globals } from 'webgpu';
-import {
-  BaseElevationNode,
-  UpscaleNode
-} from '../lib/nodesv2/index.js';
+import { fileURLToPath } from 'url';
 import { SVDAGBuilder } from '../services/svdagBuilder.js';
 import { metrics } from './monitor.js';
 
+// Import unified node system
+import { NodeRegistry } from '../../shared/NodeRegistry.js';
+import { GraphExecutor } from '../../shared/GraphExecutor.js';
+import { PerlinNoiseNode } from '../../shared/nodes/primitives/PerlinNoiseNode.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
 const router = express.Router();
 
-// Defer V2 initialization to avoid conflicts with V1
-// V1 initializes at module load, V2 initializes on first request
-let device = null;
-let nodes = null;
-let initPromise = null;
+// Node registry
+const registry = new NodeRegistry();
+
+// Register all available nodes
+registry.register(PerlinNoiseNode);
+
+console.log('📦 Registered nodes:', registry.getTypes());
+
+// Graph executor
+const executor = new GraphExecutor(registry, {
+  monitor: null, // TODO: Add proper monitor integration later
+  cache: new Map()
+});
 
 // SVDAG builder for chunk compression
 const svdagBuilder = new SVDAGBuilder();
 
-async function ensureInitialized() {
-  if (initPromise) return initPromise;
-  
-  initPromise = (async () => {
-    console.log('🎮 Initializing WebGPU for V2 pipeline...');
-
-    // Setup WebGPU globals
-    if (!globalThis.GPUBufferUsage) {
-      Object.assign(globalThis, globals);
-    }
-    const navigator = { gpu: create([]) };
-
-    // Get GPU adapter and device
-    const adapter = await navigator.gpu?.requestAdapter({ powerPreference: 'high-performance' });
-    if (!adapter) {
-      throw new Error('No GPU adapter found');
-    }
-
-    device = await adapter.requestDevice();
-    console.log('✅ WebGPU device acquired');
-
-    // Initialize nodes (minimal set - no chunk generator, using CPU fallback)
-    nodes = {
-      baseElevation: new BaseElevationNode(device),
-      upscale: new UpscaleNode(device)
-    };
-    console.log('✅ V2 nodes initialized (LOD 0 + LOD 1 only)');
-    
-    // Keep process alive
-    setInterval(() => {}, 30000);
-    console.log('✅ V2 keep-alive enabled');
-  })();
-  
-  return initPromise;
-}
-
-console.log('📦 V2 route loaded (will initialize on first request)');
-
-// Keep process alive even before GPU init
-// This prevents Node.js from exiting before first chunk request
+// Keep process alive
 setInterval(() => {}, 30000);
-console.log('✅ V2 keep-alive timer started');
+console.log('✅ V2 unified pipeline loaded');
 
 // In-memory region cache
 const regionCache = new Map();
 
 /**
- * Generate or retrieve region data (LOD 0 + LOD 1)
+ * Load or create default pipeline graph
  */
-// Simple CPU Perlin noise (no GPU)
-function simplePerlin(x, y, seed) {
-  // Very simple hash-based noise
-  const hash = (n) => {
-    n = Math.sin(n + seed) * 43758.5453123;
-    return n - Math.floor(n);
-  };
+async function loadPipeline(worldId) {
+  const worldDir = path.join(path.dirname(__dirname), '../storage/worlds', worldId);
+  const pipelinePath = path.join(worldDir, 'pipeline.json');
   
-  const n = hash(x + y * 57.0);
-  return n;
+  try {
+    const data = await fs.readFile(pipelinePath, 'utf-8');
+    const graph = JSON.parse(data);
+    console.log(`📊 Loaded pipeline for world '${worldId}' (${graph.nodes?.length || 0} nodes)`);
+    return graph;
+  } catch (err) {
+    // No pipeline.json - create default (single PerlinNoise node)
+    console.log(`⚠️  No pipeline.json for '${worldId}', using default (PerlinNoise)`);
+    
+    return {
+      nodes: [
+        {
+          id: 'perlin1',
+          type: 'PerlinNoise',
+          params: {
+            frequency: 0.001,
+            octaves: 4,
+            persistence: 0.5,
+            lacunarity: 2.0,
+            amplitude: 1.0
+          },
+          isOutput: true
+        }
+      ],
+      connections: []
+    };
+  }
 }
 
-async function getRegion(regionX, regionZ, seed) {
+/**
+ * Generate or retrieve region data using graph executor
+ */
+async function getRegion(worldId, regionX, regionZ, seed) {
   const regionKey = `${regionX}_${regionZ}_${seed}`;
   
   // Check cache first
@@ -94,97 +90,33 @@ async function getRegion(regionX, regionZ, seed) {
     return regionCache.get(regionKey);
   }
 
-  // console.log(`\n🌍 Generating region: (${regionX}, ${regionZ}) - CPU PIPELINE`);
+  console.log(`\n🌍 Generating region: (${regionX}, ${regionZ}) - UNIFIED PIPELINE`);
   const regionStartTime = Date.now();
-  const timings = {}; // Track stage timings
 
-  // Generate heightmap directly at 512×512 using CPU
-  const heightmapStart = Date.now();
-  const heightmap = new Float32Array(512 * 512);
-  
-  // Helper: Smooth interpolation (smoothstep)
-  const smoothstep = (t) => t * t * (3 - 2 * t);
-  
-  // Helper: 2D hash function for noise
-  const hash2D = (x, y, seed) => {
-    let h = seed + x * 374761393 + y * 668265263;
-    h = (h ^ (h >>> 13)) * 1274126177;
-    return (h ^ (h >>> 16)) & 0xFFFFFFFF;
-  };
-  
-  // Helper: Get random value [0, 1] from grid point
-  const getGridValue = (gx, gy) => {
-    const h = hash2D(gx, gy, seed);
-    return (h & 0xFFFF) / 0xFFFF;
-  };
-  
-  // Bilinear interpolated noise
-  const sampleNoise = (worldX, worldZ, scale) => {
-    const x = worldX / scale;
-    const z = worldZ / scale;
-    
-    const x0 = Math.floor(x);
-    const z0 = Math.floor(z);
-    const x1 = x0 + 1;
-    const z1 = z0 + 1;
-    
-    const fx = x - x0;
-    const fz = z - z0;
-    
-    // Get corner values
-    const v00 = getGridValue(x0, z0);
-    const v10 = getGridValue(x1, z0);
-    const v01 = getGridValue(x0, z1);
-    const v11 = getGridValue(x1, z1);
-    
-    // Smooth interpolation
-    const sx = smoothstep(fx);
-    const sz = smoothstep(fz);
-    
-    // Bilinear interpolation
-    const v0 = v00 * (1 - sx) + v10 * sx;
-    const v1 = v01 * (1 - sx) + v11 * sx;
-    return v0 * (1 - sz) + v1 * sz;
-  };
-  
-  // Generate heightmap with multiple octaves
-  for (let z = 0; z < 512; z++) {
-    for (let x = 0; x < 512; x++) {
-      const worldX = regionX + x;
-      const worldZ = regionZ + z;
-      
-      // Multi-octave noise (fractal)
-      let height = 0;
-      let amplitude = 1.0;
-      let frequency = 1.0;
-      let maxValue = 0;
-      
-      // 4 octaves for varied terrain
-      for (let octave = 0; octave < 4; octave++) {
-        const scale = 128.0 / frequency; // Base scale
-        height += sampleNoise(worldX, worldZ, scale) * amplitude;
-        maxValue += amplitude;
-        
-        amplitude *= 0.5;  // Each octave has half the amplitude
-        frequency *= 2.0;  // Each octave has double the frequency
-      }
-      
-      // Normalize to [0, 1]
-      height /= maxValue;
-      
-      // Adjust range: 0.2 to 0.5 (height 51 to 128 in world units)
-      height = 0.2 + height * 0.3;
-      
-      heightmap[z * 512 + x] = height;
-    }
+  // Load pipeline graph for this world
+  const graph = await loadPipeline(worldId);
+
+  // Execute graph
+  const result = await executor.execute(graph, {
+    seed,
+    offsetX: regionX,
+    offsetZ: regionZ,
+    resolution: 512
+  });
+
+  // Extract heightmap from result
+  // The output will be in result.outputs.noise (from PerlinNoiseNode)
+  const heightmap = result.outputs.noise;
+
+  if (!heightmap) {
+    throw new Error('Pipeline did not produce heightmap output');
   }
-  
-  timings.heightmapGeneration = Date.now() - heightmapStart;
 
   const regionData = {
     heightmap,
     resolution: 512,
-    timings // Include timings in region data
+    timings: result.timings,
+    cacheStats: result.cacheStats
   };
 
   // Cache the region
@@ -203,8 +135,9 @@ async function getRegion(regionX, regionZ, seed) {
   avgHeight /= heightmap.length;
   
   const elapsed = Date.now() - regionStartTime;
-  // console.log(`✅ Region generated in ${elapsed}ms (CPU)`);
-  // console.log(`   ⛰️  Height range: ${minHeight.toFixed(1)} to ${maxHeight.toFixed(1)} (avg: ${avgHeight.toFixed(1)})`);
+  console.log(`✅ Region generated in ${elapsed}ms`);
+  console.log(`   📊 Cache: ${result.cacheStats.hits} hits, ${result.cacheStats.misses} misses`);
+  console.log(`   ⛰️  Height range: ${minHeight.toFixed(1)} to ${maxHeight.toFixed(1)} (avg: ${avgHeight.toFixed(1)})`);
 
   return regionData;
 }
@@ -256,7 +189,7 @@ router.get('/worlds/:worldId/chunks/:x/:y/:z', async (req, res) => {
     
     // Get or generate region
     const startTime = Date.now();
-    const region = await getRegion(regionX, regionZ, seed);
+    const region = await getRegion(worldId, regionX, regionZ, seed);
     const regionTime = Date.now() - startTime;
     
     // Generate chunk voxels - FULL TERRAIN
