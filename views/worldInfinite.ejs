@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Infinite World Viewer - <%= worldId %></title>
+  <link rel="stylesheet" href="/css/style.css">
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: #000;
+      font-family: monospace;
+    }
+    
+    #canvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+    }
+    
+    /* Old UI removed - renderer creates its own HUD now */
+  </style>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+  <!-- Old UI panels removed - renderer creates its own HUD -->
+
+  <script type="module">
+    import { ChunkedSvdagRenderer } from '/js/chunkedSvdagRenderer.js';
+    
+    const worldId = '<%= worldId %>';
+    
+    // Initialize (lower resolution for better FPS)
+    const canvas = document.getElementById('canvas');
+    const RENDER_SCALE = 0.5; // 0.5 = half res = 4x faster
+    canvas.width = Math.floor(window.innerWidth * RENDER_SCALE);
+    canvas.height = Math.floor(window.innerHeight * RENDER_SCALE);
+    canvas.style.width = window.innerWidth + 'px';
+    canvas.style.height = window.innerHeight + 'px';
+    
+    const renderer = new ChunkedSvdagRenderer(canvas, worldId);
+    await renderer.initialize();
+    
+    // DEBUG: Expose renderer globally
+    window.renderer = renderer;
+    window.debugChunk = () => {
+      const chunk = renderer.chunkManager.chunks.get('0,4,0');
+      if (chunk) {
+        console.log('🧪 Debug chunk (0,4,0):', {
+          position: chunk.position,
+          materialNodes: chunk.materialSVDAG?.nodes?.length || 0,
+          materialLeaves: chunk.materialSVDAG?.leaves?.length || 0,
+          materialRootIdx: chunk.materialSVDAG?.rootIdx,
+          firstLeaves: chunk.materialSVDAG?.leaves ? Array.from(chunk.materialSVDAG.leaves).slice(0, 10) : []
+        });
+      } else {
+        console.log('❌ Debug chunk not found');
+      }
+    };
+    
+    // Render loop (input/movement handled by renderer now)
+    async function renderLoop() {
+      // Render (renderer handles all input, movement, chunk updates internally)
+      await renderer.render();
+      requestAnimationFrame(renderLoop);
+    }
+    
+    renderLoop();
+    
+    // Handle resize
+    window.addEventListener('resize', () => {
+      canvas.width = Math.floor(window.innerWidth * RENDER_SCALE);
+      canvas.height = Math.floor(window.innerHeight * RENDER_SCALE);
+      canvas.style.width = window.innerWidth + 'px';
+      canvas.style.height = window.innerHeight + 'px';
+    });
+  </script>
+</body>
+</html>
