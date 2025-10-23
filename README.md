@@ -1,4 +1,4 @@
-# 🌍 Visual World Generator v2.0
+﻿# 🌍 Visual World Generator v2.0
 
 > **Infinite procedural voxel worlds running entirely in the browser**  
 > No game engine. No meshes. Pure WebGPU ray marching with SVDAG compression.
@@ -10,7 +10,7 @@
 **A revolutionary approach to procedural world generation:**
 - 🎨 **Visual Node Editor** - Design terrain generation pipelines in a graph-based UI
 - 🚀 **Server-Side WebGPU** - GPU-accelerated chunk generation with @webgpu/node
-- 📦 **SVDAG Compression** - Sparse Voxel DAGs compress 32³ chunks to ~2KB
+- 📦 **SVDAG Compression** - Sparse Voxel DAGs compress 32³ chunks to ~0.3KB
 - 🎮 **Ray Marched Rendering** - No meshes, no polygons, pure voxel ray tracing
 - 🌐 **Infinite Streaming** - Dynamic chunk loading based on ray intersection tests
 - 🔄 **Unified Pipeline** - Same nodes run in browser UI and server generation

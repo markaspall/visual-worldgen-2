@@ -92,7 +92,7 @@ export class ChunkManager {
    * Fetch chunk from server
    */
   async fetchChunk(cx, cy, cz) {
-    const url = `/api/v2/worlds/${this.worldId}/chunks/${cx}/${cy}/${cz}`;
+    const url = `/api/v2/chunks/${cx}/${cy}/${cz}`;
     
     try {
       // Fetching chunk...

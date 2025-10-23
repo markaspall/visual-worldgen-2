@@ -2,6 +2,7 @@ import express from 'express';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { nodeMonitor } from '../lib/NodeMonitor.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -394,9 +395,26 @@ router.get('/', (req, res) => {
   });
 });
 
-// API: Get current stats
+// API: Get current stats (legacy chunk-based metrics)
 router.get('/api/stats', (req, res) => {
   res.json(metrics.getStats());
+});
+
+// API: Get node metrics (new unified node system)
+router.get('/api/nodes/stats', (req, res) => {
+  res.json(nodeMonitor.getStats());
+});
+
+// API: Get stats for specific node type
+router.get('/api/nodes/:nodeType/stats', (req, res) => {
+  const { nodeType } = req.params;
+  const stats = nodeMonitor.getNodeTypeStats(nodeType);
+  
+  if (!stats) {
+    return res.status(404).json({ error: 'Node type not found' });
+  }
+  
+  res.json(stats);
 });
 
 // API: Get time series data

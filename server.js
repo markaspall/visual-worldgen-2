@@ -11,11 +11,17 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const PORT = 3012;
+const PORT = process.env.PORT || 3012;
+const WORLD_ID = process.env.WORLD_ID || 'test_world';
+
+console.log('🌍 Starting Visual World Generator Server');
+console.log(`   World: ${WORLD_ID}`);
+console.log(`   Port: ${PORT}`);
 
 // Middleware
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static('public'));
+app.use('/shared', express.static('shared')); // Serve shared folder for isomorphic nodes
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 
@@ -29,16 +35,21 @@ try {
   console.error('Failed to create storage directories:', err);
 }
 
+// Make WORLD_ID available to all requests
+app.locals.worldId = WORLD_ID;
+
 // Routes
 app.get('/', (req, res) => {
   res.render('index', {
-    title: 'Procedural World Generator'
+    title: `${WORLD_ID} - Procedural World Generator`,
+    worldId: WORLD_ID
   });
 });
 
-app.get('/world', (req, res) => {
-  res.render('world', {
-    title: 'Enter World - Procedural World Generator'
+app.get('/infinite', (req, res) => {
+  res.render('worldInfinite', {
+    title: `${WORLD_ID} - 3D World Viewer`,
+    worldId: WORLD_ID
   });
 });
 

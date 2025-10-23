@@ -7,6 +7,10 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
+    "start:test_world": "cross-env WORLD_ID=test_world node server.js",
+    "dev:test_world": "cross-env WORLD_ID=test_world node --watch server.js",
+    "start:my_world": "cross-env WORLD_ID=my_world PORT=3013 node server.js",
+    "start:production": "cross-env WORLD_ID=production PORT=3014 node server.js",
     "monitor": "node server/monitorServer.js",
     "test:gpu": "node server/test-gpu.js"
   },

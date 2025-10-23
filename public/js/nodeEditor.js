@@ -365,6 +365,9 @@ export class NodeEditor {
         this.selectedNode = clickedNode;
         this.draggedNode = null; // Don't drag on body click
         
+        // Update parameter UI
+        this.updateParameterUI();
+        
         // Show preview for selected node
         this.refreshPreview();
         
@@ -826,34 +829,65 @@ export class NodeEditor {
   async refreshPreview() {
     if (!this.selectedNode) return;
     
+    const previewCanvas = document.getElementById('preview-canvas');
     const previewInfo = document.getElementById('preview-info');
+    
+    if (!previewCanvas) return;
+    
     previewInfo.textContent = `Previewing: ${this.selectedNode.type}`;
     
-    // Update parameter UI
-    this.updateParameterUI();
-    
     try {
-      // Special handling for SurfaceAnimation - show animated preview
-      if (this.selectedNode.type === 'SurfaceAnimation') {
-        previewInfo.textContent = `Live Animation Preview`;
-        this.renderAnimationInPreviewPanel(this.selectedNode.params);
-        return;
-      }
+      // Get node class from registry
+      const NodeClass = window.nodeRegistry.get(this.selectedNode.type);
       
-      // Get the node's output data
-      const result = await this.pipeline.executeNode(this.selectedNode, this.getGraph());
+      // Create node instance
+      const node = new NodeClass({
+        isServer: false,
+        cache: new Map()
+      });
       
-      if (result === null) {
-        // Preview skipped for nodes that don't produce visualizable data
-        previewInfo.textContent = `Preview skipped (run Generate to see output)`;
-      } else if (result && result.data) {
-        const stats = this.visualizer.calculateStats(result.data);
-        this.visualizer.renderPreview(result.data, result.resolution, stats);
+      // Execute node with current params (preview at 256x256)
+      const previewResolution = 256;
+      const params = {
+        ...this.selectedNode.params,
+        resolution: previewResolution
+      };
+      
+      const result = await node.process({}, params);
+      
+      // Render to canvas
+      if (result && result.noise) {
+        this.renderPreviewToCanvas(result.noise, previewResolution);
+        previewInfo.textContent = `Preview: ${this.selectedNode.type} (${previewResolution}×${previewResolution})`;
+      } else {
+        previewInfo.textContent = `No preview available`;
       }
     } catch (error) {
       console.error('Preview error:', error);
       previewInfo.textContent = `Error: ${error.message}`;
     }
+  }
+
+  renderPreviewToCanvas(data, resolution) {
+    const canvas = document.getElementById('preview-canvas');
+    if (!canvas) return;
+    
+    const ctx = canvas.getContext('2d');
+    canvas.width = resolution;
+    canvas.height = resolution;
+    
+    const imageData = ctx.createImageData(resolution, resolution);
+    
+    for (let i = 0; i < data.length; i++) {
+      const value = Math.floor(data[i] * 255);
+      const idx = i * 4;
+      imageData.data[idx] = value;     // R
+      imageData.data[idx + 1] = value; // G
+      imageData.data[idx + 2] = value; // B
+      imageData.data[idx + 3] = 255;   // A
+    }
+    
+    ctx.putImageData(imageData, 0, 0);
   }
 
   updateParameterUI() {
@@ -880,12 +914,14 @@ export class NodeEditor {
     nodeName.textContent = this.selectedNode.type;
     container.innerHTML = '';
     
-    // Merge in any new default params (for nodes created before new params were added)
-    const nodeClass = this.pipeline.getNodeClass(this.selectedNode.type);
-    if (nodeClass && nodeClass.defaultParams) {
-      for (const [key, value] of Object.entries(nodeClass.defaultParams)) {
+    // Get node metadata from registry
+    const metadata = window.nodeRegistry.getMetadata(this.selectedNode.type);
+    
+    // Merge in default params from metadata
+    if (metadata && metadata.params) {
+      for (const [key, paramConfig] of Object.entries(metadata.params)) {
         if (!(key in this.selectedNode.params)) {
-          this.selectedNode.params[key] = value;
+          this.selectedNode.params[key] = paramConfig.default;
           console.log(`Added missing param '${key}' to ${this.selectedNode.type} node`);
         }
       }
@@ -925,32 +961,37 @@ export class NodeEditor {
       const label = document.createElement('label');
       label.textContent = key;
       
+      // Get param config from metadata
+      const paramConfig = metadata?.params?.[key] || {};
+      
       if (typeof value === 'number') {
         const display = document.createElement('div');
         display.className = 'param-display';
         
-        // Determine appropriate range for slider
-        let min, max, step;
-        if (key.toLowerCase().includes('octave')) {
-          min = 1; max = 12; step = 1;
-        } else if (key.toLowerCase().includes('persistence') || key.toLowerCase().includes('weight')) {
-          min = 0; max = 1; step = 0.01;
-        } else if (key.toLowerCase().includes('frequency')) {
-          min = 0.1; max = 20; step = 0.1;
-        } else if (key.toLowerCase().includes('scale')) {
-          min = 0.1; max = 100; step = 0.5;
-        } else if (key.toLowerCase().includes('lacunarity')) {
-          min = 1; max = 4; step = 0.1;
-        } else if (key.toLowerCase().includes('step')) {
-          min = 2; max = 20; step = 1;
-        } else if (key.toLowerCase().includes('iteration')) {
-          min = 1; max = 200; step = 1;
-        } else if (key.toLowerCase().includes('rate') || key.toLowerCase().includes('smooth')) {
-          min = 0; max = 1; step = 0.01;
-        } else if (Number.isInteger(value)) {
-          min = 0; max = Math.max(100, value * 2); step = 1;
-        } else {
-          min = 0; max = Math.max(2, value * 2); step = 0.01;
+        // Use metadata min/max/step if available, otherwise infer from key name
+        let min = paramConfig.min ?? 0;
+        let max = paramConfig.max ?? 100;
+        let step = paramConfig.step ?? 0.01;
+        
+        // Fallback heuristics if no metadata
+        if (!paramConfig.min && !paramConfig.max) {
+          if (key.toLowerCase().includes('octave')) {
+            min = 1; max = 12; step = 1;
+          } else if (key.toLowerCase().includes('persistence') || key.toLowerCase().includes('weight')) {
+            min = 0; max = 1; step = 0.01;
+          } else if (key.toLowerCase().includes('frequency')) {
+            min = 0.0001; max = 0.01; step = 0.0001;
+          } else if (key.toLowerCase().includes('scale')) {
+            min = 0.1; max = 100; step = 0.5;
+          } else if (key.toLowerCase().includes('lacunarity')) {
+            min = 1; max = 4; step = 0.1;
+          } else if (key.toLowerCase().includes('amplitude')) {
+            min = 0; max = 2; step = 0.1;
+          } else if (Number.isInteger(value)) {
+            min = 0; max = Math.max(100, value * 2); step = 1;
+          } else {
+            min = 0; max = Math.max(2, value * 2); step = 0.01;
+          }
         }
         
         const slider = document.createElement('input');

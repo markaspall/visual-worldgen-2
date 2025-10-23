@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title><%= title %></title>
   <link rel="stylesheet" href="/css/style.css">
-  <link rel="stylesheet" href="/css/rete.css">
 </head>
 <body>
   <div id="app">
@@ -16,15 +15,10 @@
         <span class="subtitle">WebGPU-Accelerated Map Generation</span>
       </div>
       <div class="header-right">
-        <button id="btn-save" class="btn btn-secondary">💾 Save</button>
-        <button id="btn-load" class="btn btn-secondary">📂 Load</button>
-        <label class="auto-generate-label">
-          <input type="checkbox" id="auto-generate" />
-          <span>Auto-Generate</span>
-        </label>
-        <button id="btn-generate" class="btn btn-primary">⚡ Generate</button>
-        <button id="btn-export" class="btn btn-success">📥 Export PNG</button>
-        <button id="btn-enter-world" class="btn btn-accent" onclick="window.open('/world', '_blank')" title="Enter the generated world in 3D">🎮 Enter World</button>
+        <a href="/monitor" target="_blank" class="btn btn-secondary" style="text-decoration: none;" title="Performance Monitor">📊 Monitor</a>
+        <button id="btn-load" class="btn btn-secondary">📂 Load World</button>
+        <button id="btn-save" class="btn btn-secondary">💾 Save Pipeline</button>
+        <button id="btn-enter-world" class="btn btn-primary" style="font-size: 1.1rem; padding: 0.6rem 1.5rem; font-weight: 600;" title="View your world in 3D">🎮 Enter World</button>
       </div>
     </header>
 
@@ -183,6 +177,82 @@
               <button class="node-type-btn" data-type="BlockMapOutput">Block Map Output</button>
             </div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Load World -->
+  <div id="modal-load-world" class="modal-overlay" style="display: none;">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3>📂 Load World</h3>
+        <button class="modal-close" onclick="document.getElementById('modal-load-world').style.display='none'">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="world-list-loading" style="text-align: center; padding: 2rem;">
+          <div class="spinner"></div>
+          <p>Loading worlds...</p>
+        </div>
+        <div id="world-list-container" style="display: none;">
+          <div id="world-list"></div>
+          <p class="modal-hint">Click a world to load its pipeline</p>
+        </div>
+        <div id="world-list-empty" style="display: none; text-align: center; padding: 2rem;">
+          <p>⚠️ No worlds found</p>
+          <p class="modal-hint">Save a pipeline first to create a world</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Save World -->
+  <div id="modal-save-world" class="modal-overlay" style="display: none;">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3>💾 Save Pipeline to World</h3>
+        <button class="modal-close" onclick="document.getElementById('modal-save-world').style.display='none'">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="form-save-world" onsubmit="return false;">
+          <div class="form-group">
+            <label for="input-world-id">World ID</label>
+            <input type="text" id="input-world-id" class="form-input" placeholder="e.g., test_world, my_terrain" required pattern="[a-z0-9_-]+" title="Lowercase letters, numbers, dashes, and underscores only">
+            <p class="form-hint">Use lowercase letters, numbers, dashes, and underscores</p>
+          </div>
+          <div class="form-group">
+            <label>Pipeline Info</label>
+            <div class="info-box">
+              <div class="info-row">
+                <span>Nodes:</span>
+                <span id="save-node-count">0</span>
+              </div>
+              <div class="info-row">
+                <span>Connections:</span>
+                <span id="save-connection-count">0</span>
+              </div>
+            </div>
+          </div>
+          <div class="modal-actions">
+            <button type="button" class="btn btn-secondary" onclick="document.getElementById('modal-save-world').style.display='none'">Cancel</button>
+            <button type="submit" class="btn btn-primary">💾 Save Pipeline</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Success/Error -->
+  <div id="modal-message" class="modal-overlay" style="display: none;">
+    <div class="modal-dialog modal-small">
+      <div class="modal-header">
+        <h3 id="message-title">Message</h3>
+        <button class="modal-close" onclick="document.getElementById('modal-message').style.display='none'">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p id="message-text"></p>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-primary" onclick="document.getElementById('modal-message').style.display='none'">OK</button>
       </div>
     </div>
   </div>

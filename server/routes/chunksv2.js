@@ -14,10 +14,23 @@ import { metrics } from './monitor.js';
 import { NodeRegistry } from '../../shared/NodeRegistry.js';
 import { GraphExecutor } from '../../shared/GraphExecutor.js';
 import { PerlinNoiseNode } from '../../shared/nodes/primitives/PerlinNoiseNode.js';
+import { nodeMonitor } from '../lib/NodeMonitor.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const router = express.Router();
+
+// Get WORLD_ID from app.locals (set in server.js)
+let WORLD_ID = 'test_world'; // Default fallback
+
+// Middleware to ensure WORLD_ID is set
+router.use((req, res, next) => {
+  WORLD_ID = req.app.locals.worldId || 'test_world';
+  next();
+});
+
+// Make nodeMonitor available globally for BaseNode
+global.nodeMonitor = nodeMonitor;
 
 // Node registry
 const registry = new NodeRegistry();
@@ -46,18 +59,18 @@ const regionCache = new Map();
 /**
  * Load or create default pipeline graph
  */
-async function loadPipeline(worldId) {
-  const worldDir = path.join(path.dirname(__dirname), '../storage/worlds', worldId);
+async function loadPipeline() {
+  const worldDir = path.join(path.dirname(__dirname), '../storage/worlds', WORLD_ID);
   const pipelinePath = path.join(worldDir, 'pipeline.json');
   
   try {
     const data = await fs.readFile(pipelinePath, 'utf-8');
     const graph = JSON.parse(data);
-    console.log(`📊 Loaded pipeline for world '${worldId}' (${graph.nodes?.length || 0} nodes)`);
+    console.log(`📊 Loaded pipeline for world '${WORLD_ID}' (${graph.nodes?.length || 0} nodes)`);
     return graph;
   } catch (err) {
     // No pipeline.json - create default (single PerlinNoise node)
-    console.log(`⚠️  No pipeline.json for '${worldId}', using default (PerlinNoise)`);
+    console.log(`⚠️  No pipeline.json for '${WORLD_ID}', using default (PerlinNoise)`);
     
     return {
       nodes: [
@@ -82,7 +95,7 @@ async function loadPipeline(worldId) {
 /**
  * Generate or retrieve region data using graph executor
  */
-async function getRegion(worldId, regionX, regionZ, seed) {
+async function getRegion(regionX, regionZ, seed) {
   const regionKey = `${regionX}_${regionZ}_${seed}`;
   
   // Check cache first
@@ -93,8 +106,8 @@ async function getRegion(worldId, regionX, regionZ, seed) {
   console.log(`\n🌍 Generating region: (${regionX}, ${regionZ}) - UNIFIED PIPELINE`);
   const regionStartTime = Date.now();
 
-  // Load pipeline graph for this world
-  const graph = await loadPipeline(worldId);
+  // Load pipeline graph
+  const graph = await loadPipeline();
 
   // Execute graph
   const result = await executor.execute(graph, {
@@ -143,19 +156,28 @@ async function getRegion(worldId, regionX, regionZ, seed) {
 }
 
 /**
- * GET /api/v2/worlds/:worldId/chunks/:x/:y/:z
- * Get a single stream chunk (32x32x32 SVDAG) using V2 pipeline
+ * GET /api/v2/pipeline
+ * Get current world's pipeline
  */
-/**
- * POST /api/v2/worlds/:worldId/pipeline
- * Save pipeline graph to world directory
- */
-router.post('/worlds/:worldId/pipeline', async (req, res) => {
+router.get('/pipeline', async (req, res) => {
   try {
-    const { worldId } = req.params;
+    const graph = await loadPipeline();
+    res.json({ success: true, pipeline: graph, worldId: WORLD_ID });
+  } catch (error) {
+    console.error('Error loading pipeline:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * POST /api/v2/pipeline
+ * Save pipeline to current world
+ */
+router.post('/pipeline', async (req, res) => {
+  try {
     const { nodes, connections, metadata } = req.body;
 
-    const worldDir = path.join(path.dirname(__dirname), '../storage/worlds', worldId);
+    const worldDir = path.join(path.dirname(__dirname), '../storage/worlds', WORLD_ID);
     const pipelinePath = path.join(worldDir, 'pipeline.json');
 
     // Create world directory if it doesn't exist
@@ -170,9 +192,9 @@ router.post('/worlds/:worldId/pipeline', async (req, res) => {
 
     await fs.writeFile(pipelinePath, JSON.stringify(pipelineData, null, 2));
 
-    console.log(`✅ Saved pipeline for world '${worldId}' (${nodes.length} nodes)`);
+    console.log(`✅ Saved pipeline for world '${WORLD_ID}' (${nodes.length} nodes)`);
 
-    res.json({ success: true, worldId, nodeCount: nodes.length });
+    res.json({ success: true, worldId: WORLD_ID, nodeCount: nodes.length });
   } catch (error) {
     console.error('Error saving pipeline:', error);
     res.status(500).json({ success: false, error: error.message });
@@ -180,26 +202,54 @@ router.post('/worlds/:worldId/pipeline', async (req, res) => {
 });
 
 /**
- * GET /api/v2/worlds/:worldId/chunks/:x/:y/:z
- * Get a single stream chunk (32x32x32 SVDAG) using V2 pipeline
+ * GET /api/v2/info
+ * Get current world info
  */
-router.get('/worlds/:worldId/chunks/:x/:y/:z', async (req, res) => {
+router.get('/info', async (req, res) => {
+  try {
+    const worldDir = path.join(path.dirname(__dirname), '../storage/worlds', WORLD_ID);
+    const configPath = path.join(worldDir, 'config.json');
+    
+    let config = {};
+    try {
+      const data = await fs.readFile(configPath, 'utf-8');
+      config = JSON.parse(data);
+    } catch (err) {
+      // No config file
+    }
+
+    res.json({
+      worldId: WORLD_ID,
+      seed: config.seed || 12345,
+      name: config.name || WORLD_ID
+    });
+  } catch (error) {
+    console.error('Error getting world info:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * GET /api/v2/chunks/:x/:y/:z
+ * Get a single stream chunk (32x32x32 SVDAG)
+ */
+router.get('/chunks/:x/:y/:z', async (req, res) => {
   // Wrap entire handler to catch sync GPU errors
   try {
     // No GPU initialization needed - using CPU pipeline
     
-    const { worldId, x, y, z } = req.params;
+    const { x, y, z } = req.params;
     const cx = parseInt(x);
     const cy = parseInt(y);
     const cz = parseInt(z);
     
     // Only log chunks at (0, ?, 0) for debugging
     if (cx === 0 && cz === 0) {
-      console.log(`\n📦 V2 Chunk request: ${worldId} (${cx}, ${cy}, ${cz})`);
+      console.log(`\n📦 V2 Chunk request: ${WORLD_ID} (${cx}, ${cy}, ${cz})`);
     }
     
     // Load world configuration
-    const worldDir = path.join('storage', 'worlds', worldId);
+    const worldDir = path.join(path.dirname(__dirname), '../storage/worlds', WORLD_ID);
     const configPath = path.join(worldDir, 'config.json');
     
     // Check if world exists
@@ -226,7 +276,7 @@ router.get('/worlds/:worldId/chunks/:x/:y/:z', async (req, res) => {
     
     // Get or generate region
     const startTime = Date.now();
-    const region = await getRegion(worldId, regionX, regionZ, seed);
+    const region = await getRegion(regionX, regionZ, seed);
     const regionTime = Date.now() - startTime;
     
     // Generate chunk voxels - FULL TERRAIN

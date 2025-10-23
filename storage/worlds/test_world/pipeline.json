@@ -1,0 +1,31 @@
+{
+  "nodes": [
+    {
+      "id": "perlin_base",
+      "type": "PerlinNoise",
+      "params": {
+        "frequency": 0.001,
+        "octaves": 4,
+        "persistence": 0.5,
+        "lacunarity": 2.0,
+        "amplitude": 1.0,
+        "offsetX": 0,
+        "offsetZ": 0,
+        "seed": 12345
+      },
+      "position": {
+        "x": 200,
+        "y": 150
+      },
+      "displayName": "Base Terrain",
+      "isOutput": true
+    }
+  ],
+  "connections": [],
+  "metadata": {
+    "savedAt": "2025-10-23T05:35:00.000Z",
+    "nodeCount": 1,
+    "connectionCount": 0,
+    "description": "Default Perlin noise terrain - matches original hardcoded parameters"
+  }
+}

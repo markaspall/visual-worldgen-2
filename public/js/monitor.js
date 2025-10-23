@@ -84,33 +84,17 @@ function initCharts() {
     }
   });
 
-  // Timing Distribution Chart
+  // Timing Distribution Chart (dynamic node-based)
   const timingCtx = document.getElementById('timingChart').getContext('2d');
   timingChart = new Chart(timingCtx, {
     type: 'bar',
     data: {
-      labels: ['Base', 'Pre-Moist', 'Erosion', 'Post-Moist', 'Upscale', 'Chunk', 'SVDAG'],
+      labels: [], // Will be populated dynamically from node stats
       datasets: [{
         label: 'Avg Time (ms)',
-        data: [0, 0, 0, 0, 0, 0, 0],
-        backgroundColor: [
-          'rgba(74, 158, 255, 0.8)',
-          'rgba(74, 158, 255, 0.8)',
-          'rgba(251, 191, 36, 0.8)',
-          'rgba(74, 158, 255, 0.8)',
-          'rgba(74, 222, 128, 0.8)',
-          'rgba(74, 158, 255, 0.8)',
-          'rgba(74, 158, 255, 0.8)'
-        ],
-        borderColor: [
-          '#4a9eff',
-          '#4a9eff',
-          '#fbbf24',
-          '#4a9eff',
-          '#4ade80',
-          '#4a9eff',
-          '#4a9eff'
-        ],
+        data: [],
+        backgroundColor: [],
+        borderColor: [],
         borderWidth: 1
       }]
     },
@@ -160,9 +144,13 @@ function startUpdating() {
 
 async function updateDashboard() {
   try {
-    // Fetch stats
+    // Fetch legacy stats (for overview cards)
     const statsResponse = await fetch('/monitor/api/stats');
     const stats = await statsResponse.json();
+
+    // Fetch NEW node stats (unified node system)
+    const nodeStatsResponse = await fetch('/monitor/api/nodes/stats');
+    const nodeStats = await nodeStatsResponse.json();
 
     // Fetch time series
     const timeSeriesResponse = await fetch('/monitor/api/timeseries?minutes=5');
@@ -172,14 +160,14 @@ async function updateDashboard() {
     document.getElementById('status-dot').classList.add('active');
     document.getElementById('status-text').textContent = 'Live';
 
-    // Update overview stats
-    updateOverviewStats(stats);
+    // Update overview stats (pass nodeStats for cache metrics)
+    updateOverviewStats(stats, nodeStats);
 
     // Update charts
-    updateCharts(stats, timeSeries);
+    updateCharts(stats, timeSeries, nodeStats);
 
-    // Update pipeline breakdown
-    updatePipelineBreakdown(stats.timings);
+    // Update NODE-BASED pipeline breakdown (NEW!)
+    updateNodeBreakdown(nodeStats);
 
     // Update recent requests table
     updateRecentRequests(stats.recentRequests);
@@ -194,7 +182,7 @@ async function updateDashboard() {
   }
 }
 
-function updateOverviewStats(stats) {
+function updateOverviewStats(stats, nodeStats) {
   // Uptime
   document.getElementById('uptime').textContent = stats.uptime.formatted;
 
@@ -202,14 +190,25 @@ function updateOverviewStats(stats) {
   document.getElementById('total-chunks').textContent = stats.chunks.total.toLocaleString();
   document.getElementById('request-rate').textContent = `${stats.chunks.requestRate} req/s`;
 
-  // Cache stats
-  const cacheRate = stats.chunks.total > 0 
-    ? (((stats.chunks.cached + stats.chunks.regionCached) / stats.chunks.total) * 100).toFixed(1)
-    : '0.0';
+  // Cache stats - use node-based if available
+  let cacheRate;
+  if (nodeStats && nodeStats.totals) {
+    cacheRate = nodeStats.totals.cacheHitRate.toFixed(1);
+    // Update sub-stats with node execution counts
+    document.getElementById('cached-chunks').textContent = nodeStats.totals.totalCacheHits.toLocaleString();
+    document.getElementById('region-cached-chunks').textContent = '0'; // N/A for node-based
+    document.getElementById('generated-chunks').textContent = nodeStats.totals.totalCacheMisses.toLocaleString();
+  } else {
+    // Fallback to legacy chunk-based stats
+    cacheRate = stats.chunks.total > 0 
+      ? (((stats.chunks.cached + stats.chunks.regionCached) / stats.chunks.total) * 100).toFixed(1)
+      : '0.0';
+    document.getElementById('cached-chunks').textContent = stats.chunks.cached.toLocaleString();
+    document.getElementById('region-cached-chunks').textContent = stats.chunks.regionCached.toLocaleString();
+    document.getElementById('generated-chunks').textContent = stats.chunks.fullGeneration.toLocaleString();
+  }
+  
   document.getElementById('cache-hit-rate').textContent = `${cacheRate}%`;
-  document.getElementById('cached-chunks').textContent = stats.chunks.cached.toLocaleString();
-  document.getElementById('region-cached-chunks').textContent = stats.chunks.regionCached.toLocaleString();
-  document.getElementById('generated-chunks').textContent = stats.chunks.fullGeneration.toLocaleString();
 
   // Response time
   if (stats.timings.total) {
@@ -252,7 +251,7 @@ function updateOverviewStats(stats) {
   }
 }
 
-function updateCharts(stats, timeSeries) {
+function updateCharts(stats, timeSeries, nodeStats) {
   // Update request rate chart
   if (timeSeries.length > 0) {
     const labels = timeSeries.map(d => {
@@ -269,8 +268,34 @@ function updateCharts(stats, timeSeries) {
     requestChart.update('none'); // Skip animation for performance
   }
 
-  // Update timing chart
-  if (stats.timings) {
+  // Update timing chart with NODE data
+  if (nodeStats && nodeStats.nodeStats && nodeStats.nodeStats.length > 0) {
+    // Use actual node types from unified system
+    const labels = nodeStats.nodeStats.map(n => n.type);
+    const avgTimes = nodeStats.nodeStats.map(n => n.avgTime || 0);
+    
+    // Color code: processors = orange, primitives = blue
+    const colors = nodeStats.nodeStats.map(n => {
+      if (n.type.includes('Erosion') || n.type.includes('Classifier') || n.type.includes('Generator')) {
+        return 'rgba(251, 191, 36, 0.8)'; // Orange for processors
+      }
+      return 'rgba(74, 158, 255, 0.8)'; // Blue for primitives
+    });
+    
+    const borderColors = nodeStats.nodeStats.map(n => {
+      if (n.type.includes('Erosion') || n.type.includes('Classifier') || n.type.includes('Generator')) {
+        return '#fbbf24';
+      }
+      return '#4a9eff';
+    });
+
+    timingChart.data.labels = labels;
+    timingChart.data.datasets[0].data = avgTimes;
+    timingChart.data.datasets[0].backgroundColor = colors;
+    timingChart.data.datasets[0].borderColor = borderColors;
+    timingChart.update('none');
+  } else if (stats.timings) {
+    // Fallback to legacy stats if no node stats available
     const timingData = [
       stats.timings.baseElevation?.recent || 0,
       stats.timings.preErosionMoisture?.recent || 0,
@@ -286,48 +311,144 @@ function updateCharts(stats, timeSeries) {
   }
 }
 
-function updatePipelineBreakdown(timings) {
-  const stages = [
-    'baseElevation',
-    'preErosionMoisture',
-    'erosion',
-    'postErosionMoisture',
-    'upscale',
-    'chunkGen',
-    'svdagBuild'
-  ];
+// NEW: Update node-based breakdown (processor + primitive nodes)
+function updateNodeBreakdown(nodeStats) {
+  if (!nodeStats || !nodeStats.nodeStats) {
+    return;
+  }
+
+  // Separate processors from primitives
+  const processors = nodeStats.nodeStats.filter(n => 
+    n.type.includes('Erosion') || 
+    n.type.includes('Classifier') || 
+    n.type.includes('Generator') ||
+    n.type.includes('Upscale')
+  );
+  
+  const primitives = nodeStats.nodeStats.filter(n => 
+    n.type.includes('Noise') || 
+    n.type.includes('Blend') || 
+    n.type.includes('Remap') ||
+    n.type.includes('Normalize')
+  );
+
+  // Update PROCESSOR nodes (main pipeline stages)
+  updateProcessorNodes(processors);
+  
+  // Update PRIMITIVE nodes (building blocks - hidden by default)
+  updatePrimitiveNodes(primitives);
+}
+
+function updateProcessorNodes(processors) {
+  const container = document.getElementById('processor-nodes-grid');
+  
+  if (!processors || processors.length === 0) {
+    container.innerHTML = `
+      <div class="pipeline-stage">
+        <div class="stage-name">No processors yet</div>
+        <div class="stage-time">Add processor nodes to your pipeline (e.g., HydraulicErosion, BiomeClassifier)</div>
+      </div>
+    `;
+    return;
+  }
 
   // Find max time for bar scaling
-  let maxTime = 0;
-  stages.forEach(stage => {
-    if (timings[stage]) {
-      maxTime = Math.max(maxTime, timings[stage].recent);
-    }
-  });
+  const maxTime = Math.max(...processors.map(p => p.avgTime || 0));
 
-  stages.forEach(stage => {
-    const timeEl = document.getElementById(`time-${stage}`);
-    const barEl = document.getElementById(`bar-${stage}`);
+  container.innerHTML = processors.map(node => {
+    const cacheRate = node.executions > 0 
+      ? ((node.cacheHits / node.executions) * 100).toFixed(1)
+      : '0.0';
+    
+    const avgTime = node.avgTime || 0;
+    const barWidth = maxTime > 0 ? (avgTime / maxTime) * 100 : 0;
+    
+    return `
+      <div class="pipeline-stage">
+        <div class="stage-name">${node.type}</div>
+        <div class="stage-time">
+          <strong>${avgTime.toFixed(2)}ms</strong> avg
+          <span style="color: #888; font-size: 0.85rem; margin-left: 8px;">
+            ${node.executions} exec | ${cacheRate}% cached
+          </span>
+        </div>
+        <div class="stage-bar">
+          <div class="stage-bar-fill" style="width: ${barWidth}%; background: #fbbf24;"></div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
 
-    if (timings[stage]) {
-      const time = timings[stage].recent;
-      timeEl.textContent = `${time.toFixed(2)}ms`;
-      
-      // Calculate bar width (percentage of max)
-      const width = maxTime > 0 ? (time / maxTime) * 100 : 0;
-      barEl.style.width = `${width}%`;
-    } else {
-      timeEl.textContent = '--';
-      barEl.style.width = '0%';
-    }
-  });
+function updatePrimitiveNodes(primitives) {
+  const container = document.getElementById('primitive-nodes-grid');
+  
+  if (!primitives || primitives.length === 0) {
+    container.innerHTML = `
+      <div class="pipeline-stage">
+        <div class="stage-name">No primitives yet</div>
+        <div class="stage-time">Primitives feed data to processors</div>
+      </div>
+    `;
+    return;
+  }
+
+  // Find max time for bar scaling
+  const maxTime = Math.max(...primitives.map(p => p.avgTime || 0));
+
+  container.innerHTML = primitives.map(node => {
+    const cacheRate = node.executions > 0 
+      ? ((node.cacheHits / node.executions) * 100).toFixed(1)
+      : '0.0';
+    
+    const avgTime = node.avgTime || 0;
+    const barWidth = maxTime > 0 ? (avgTime / maxTime) * 100 : 0;
+    
+    // Show last params if available
+    const paramsStr = node.lastParams 
+      ? Object.entries(node.lastParams)
+          .slice(0, 3) // First 3 params only
+          .map(([k, v]) => `${k}: ${typeof v === 'number' ? v.toFixed(4) : v}`)
+          .join(', ')
+      : '';
+    
+    return `
+      <div class="pipeline-stage">
+        <div class="stage-name">${node.type}</div>
+        <div class="stage-time">
+          <strong>${avgTime.toFixed(2)}ms</strong> avg
+          <span style="color: #888; font-size: 0.85rem; margin-left: 8px;">
+            ${node.executions} exec | ${cacheRate}% cached
+          </span>
+          ${paramsStr ? `<div style="color: #666; font-size: 0.75rem; margin-top: 2px;">${paramsStr}</div>` : ''}
+        </div>
+        <div class="stage-bar">
+          <div class="stage-bar-fill" style="width: ${barWidth}%; background: #4a9eff;"></div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+// Toggle primitive nodes visibility
+function togglePrimitives() {
+  const grid = document.getElementById('primitive-nodes-grid');
+  const toggle = document.getElementById('primitives-toggle');
+  
+  if (grid.style.display === 'none') {
+    grid.style.display = 'grid';
+    toggle.textContent = '▼';
+  } else {
+    grid.style.display = 'none';
+    toggle.textContent = '▶';
+  }
 }
 
 function updateRecentRequests(requests) {
   const tbody = document.getElementById('recent-requests');
 
   if (!requests || requests.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="9" class="no-data">No requests yet...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="5" class="no-data">No requests yet...</td></tr>';
     return;
   }
 
@@ -344,12 +465,11 @@ function updateRecentRequests(requests) {
       badge = '<span class="badge badge-generated">Full Gen</span>';
     }
 
+    // Show node breakdown if available (future feature)
     const stages = req.stages || {};
-    const base = stages.baseElevation ? `${stages.baseElevation.toFixed(1)}ms` : '-';
-    const erosion = stages.erosion ? `${stages.erosion.toFixed(1)}ms` : '-';
-    const upscale = stages.upscale ? `${stages.upscale.toFixed(1)}ms` : '-';
-    const chunkGen = stages.chunkGen ? `${stages.chunkGen.toFixed(1)}ms` : '-';
-    const svdag = stages.svdagBuild ? `${stages.svdagBuild.toFixed(1)}ms` : '-';
+    const nodeList = Object.keys(stages).length > 0
+      ? Object.entries(stages).map(([name, time]) => `${name}: ${time.toFixed(1)}ms`).join(', ')
+      : 'Legacy pipeline';
 
     return `
       <tr>
@@ -357,11 +477,7 @@ function updateRecentRequests(requests) {
         <td><code>${req.chunkCoords}</code></td>
         <td>${badge}</td>
         <td><strong>${req.totalTime.toFixed(1)}ms</strong></td>
-        <td>${base}</td>
-        <td>${erosion}</td>
-        <td>${upscale}</td>
-        <td>${chunkGen}</td>
-        <td>${svdag}</td>
+        <td style="font-size: 0.85rem;">${nodeList}</td>
       </tr>
     `;
   }).join('');

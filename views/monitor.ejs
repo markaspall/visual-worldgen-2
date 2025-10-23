@@ -150,68 +150,45 @@
         </div>
       </section>
 
-      <!-- Pipeline Breakdown -->
+      <!-- Processor Nodes (Main Pipeline Stages) -->
       <section class="pipeline-section">
-        <h3>Pipeline Stage Timing (ms)</h3>
-        <div class="pipeline-grid">
+        <h3>🔧 Processor Nodes (Pipeline Stages)</h3>
+        <div id="processor-nodes-grid" class="pipeline-grid">
+          <!-- Populated dynamically with processor nodes -->
           <div class="pipeline-stage">
-            <div class="stage-name">Base Elevation</div>
-            <div class="stage-time" id="time-baseElevation">--</div>
-            <div class="stage-bar"><div class="stage-bar-fill" id="bar-baseElevation"></div></div>
-          </div>
-          <div class="pipeline-stage">
-            <div class="stage-name">Pre-Erosion Moisture</div>
-            <div class="stage-time" id="time-preErosionMoisture">--</div>
-            <div class="stage-bar"><div class="stage-bar-fill" id="bar-preErosionMoisture"></div></div>
-          </div>
-          <div class="pipeline-stage">
-            <div class="stage-name">Hydraulic Erosion</div>
-            <div class="stage-time" id="time-erosion">--</div>
-            <div class="stage-bar"><div class="stage-bar-fill" id="bar-erosion"></div></div>
-          </div>
-          <div class="pipeline-stage">
-            <div class="stage-name">Post-Erosion Moisture</div>
-            <div class="stage-time" id="time-postErosionMoisture">--</div>
-            <div class="stage-bar"><div class="stage-bar-fill" id="bar-postErosionMoisture"></div></div>
-          </div>
-          <div class="pipeline-stage">
-            <div class="stage-name">Upscale (128→512)</div>
-            <div class="stage-time" id="time-upscale">--</div>
-            <div class="stage-bar"><div class="stage-bar-fill" id="bar-upscale"></div></div>
-          </div>
-          <div class="pipeline-stage">
-            <div class="stage-name">Chunk Generation</div>
-            <div class="stage-time" id="time-chunkGen">--</div>
-            <div class="stage-bar"><div class="stage-bar-fill" id="bar-chunkGen"></div></div>
-          </div>
-          <div class="pipeline-stage">
-            <div class="stage-name">SVDAG Build</div>
-            <div class="stage-time" id="time-svdagBuild">--</div>
-            <div class="stage-bar"><div class="stage-bar-fill" id="bar-svdagBuild"></div></div>
+            <div class="stage-name">No processors yet</div>
+            <div class="stage-time">Add processor nodes to your pipeline</div>
           </div>
         </div>
       </section>
 
-      <!-- Recent Requests Table -->
+      <!-- Primitive Nodes (Optional - Collapsed by Default) -->
+      <section class="primitives-section">
+        <h3 onclick="togglePrimitives()" style="cursor: pointer;">
+          <span id="primitives-toggle">▶</span> 🧱 Primitive Nodes (Building Blocks)
+          <span class="subtitle" style="font-size: 0.8rem; font-weight: normal; margin-left: 8px;">Click to expand</span>
+        </h3>
+        <div id="primitive-nodes-grid" class="pipeline-grid" style="display: none;">
+          <!-- Populated dynamically with primitive nodes -->
+        </div>
+      </section>
+
+      <!-- Recent Requests Table (Dynamic) -->
       <section class="recent-section">
-        <h3>Recent Requests (Last 20)</h3>
+        <h3>Recent Chunk Requests (Last 20)</h3>
         <div class="table-container">
           <table class="requests-table">
-            <thead>
+            <thead id="recent-requests-header">
               <tr>
                 <th>Time</th>
                 <th>Chunk</th>
                 <th>Status</th>
                 <th>Total Time</th>
-                <th>Base</th>
-                <th>Erosion</th>
-                <th>Upscale</th>
-                <th>Chunk Gen</th>
-                <th>SVDAG</th>
+                <th>Nodes</th>
               </tr>
             </thead>
             <tbody id="recent-requests">
-              <tr><td colspan="9" class="no-data">No requests yet...</td></tr>
+              <tr><td colspan="5" class="no-data">No requests yet...</td></tr>
             </tbody>
           </table>
         </div>
