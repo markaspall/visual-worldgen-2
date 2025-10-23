@@ -3,6 +3,24 @@
  * Manages node registration and instantiation
  */
 
+// Import all available nodes
+// Primitives
+import { PerlinNoiseNode } from './nodes/primitives/PerlinNoiseNode.js';
+import { BlendNode } from './nodes/primitives/BlendNode.js';
+import { RemapNode } from './nodes/primitives/RemapNode.js';
+import { NormalizeNode } from './nodes/primitives/NormalizeNode.js';
+import { GradientNode } from './nodes/primitives/GradientNode.js';
+import { ConstantNode } from './nodes/primitives/ConstantNode.js';
+
+// Processors
+import { BiomeClassifierNode } from './nodes/processors/BiomeClassifierNode.js';
+import { DownsampleNode } from './nodes/processors/DownsampleNode.js';
+import { UpsampleNode } from './nodes/processors/UpsampleNode.js';
+import { HydraulicErosionNode } from './nodes/processors/HydraulicErosionNode.js';
+
+// Outputs
+import { ElevationOutputNode } from './nodes/outputs/ElevationOutputNode.js';
+
 export class NodeRegistry {
   constructor() {
     this.nodes = new Map(); // type -> NodeClass
@@ -134,3 +152,37 @@ export class NodeRegistry {
 
 // Create global registry instance
 export const registry = new NodeRegistry();
+
+// Register all primitives
+registry.register(PerlinNoiseNode);
+registry.register(BlendNode);
+registry.register(RemapNode);
+registry.register(NormalizeNode);
+registry.register(GradientNode);
+registry.register(ConstantNode);
+
+// Register processors
+registry.register(BiomeClassifierNode);
+registry.register(DownsampleNode);
+registry.register(UpsampleNode);
+registry.register(HydraulicErosionNode);
+// registry.register(BlockClassifierNode); // Coming next
+
+// Register outputs
+registry.register(ElevationOutputNode);
+
+if (typeof console !== 'undefined') {
+  console.log('📦 Node Registry initialized with', registry.getTypes().length, 'node types');
+  const primitives = registry.getByCategory('Primitives');
+  const processors = registry.getByCategory('Processors');
+  const outputs = registry.getByCategory('Outputs');
+  if (primitives && primitives.length > 0) {
+    console.log('   Primitives:', primitives.join(', '));
+  }
+  if (processors && processors.length > 0) {
+    console.log('   Processors:', processors.join(', '));
+  }
+  if (outputs && outputs.length > 0) {
+    console.log('   Outputs:', outputs.join(', '));
+  }
+}

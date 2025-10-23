@@ -167,15 +167,17 @@ export class GraphExecutor {
         throw new Error(`Source node ${conn.from} has no result`);
       }
       
-      // Get output from source node
-      const sourceOutput = sourceResult[conn.fromOutput];
+      // Get output from source node (support both formats)
+      const outputName = conn.output || conn.fromOutput;
+      const sourceOutput = sourceResult[outputName];
       
       if (!sourceOutput) {
-        throw new Error(`Source node ${conn.from} has no output '${conn.fromOutput}'`);
+        throw new Error(`Source node ${conn.from} has no output '${outputName}'`);
       }
       
-      // Set as input to this node
-      inputs[conn.toInput] = sourceOutput;
+      // Set as input to this node (support both formats)
+      const inputName = conn.input || conn.toInput;
+      inputs[inputName] = sourceOutput;
     }
     
     return inputs;
@@ -183,13 +185,58 @@ export class GraphExecutor {
 
   /**
    * Extract final outputs from graph
-   * Outputs are nodes marked as outputs or nodes with no outgoing connections
+   * Priority:
+   * 1. Output nodes (ElevationOutput, etc.)
+   * 2. graph.outputs mapping (JSON)
+   * 3. Nodes with no outgoing connections (fallback)
    */
   extractOutputs(graph, nodeResults) {
     const outputs = {};
     
-    // Find output nodes (no outgoing connections)
-    const outputNodeIds = graph.nodes
+    // Priority 1: Check for dedicated Output nodes (e.g., ElevationOutput)
+    const outputNodes = graph.nodes.filter(node => 
+      node.type && node.type.endsWith('Output')
+    );
+    
+    if (outputNodes.length > 0) {
+      for (const outputNode of outputNodes) {
+        const result = nodeResults.get(outputNode.id);
+        if (result) {
+          // Output nodes pass through their data
+          Object.assign(outputs, result);
+        }
+      }
+      return outputs; // Use output nodes exclusively
+    }
+    
+    // Priority 2: Use graph.outputs mapping if available
+    if (graph.outputs && typeof graph.outputs === 'object') {
+      for (const [outputName, nodeId] of Object.entries(graph.outputs)) {
+        const result = nodeResults.get(nodeId);
+        
+        if (result) {
+          // Try to find the right output field
+          // Common patterns: output, noise, data, or the output name itself
+          if (result.output !== undefined) {
+            outputs[outputName] = result.output;
+          } else if (result.noise !== undefined) {
+            outputs[outputName] = result.noise;
+          } else if (result[outputName] !== undefined) {
+            outputs[outputName] = result[outputName];
+          } else {
+            // Just use the first non-private field
+            const keys = Object.keys(result).filter(k => !k.startsWith('_'));
+            if (keys.length > 0) {
+              outputs[outputName] = result[keys[0]];
+            }
+          }
+        }
+      }
+      return outputs;
+    }
+    
+    // Priority 3: Fallback - Find nodes with no outgoing connections
+    const terminalNodeIds = graph.nodes
       .filter(node => {
         const hasOutgoing = graph.connections.some(c => c.from === node.id);
         return !hasOutgoing || node.isOutput;
@@ -197,13 +244,10 @@ export class GraphExecutor {
       .map(node => node.id);
     
     // Collect their outputs
-    for (const nodeId of outputNodeIds) {
+    for (const nodeId of terminalNodeIds) {
       const result = nodeResults.get(nodeId);
-      const node = graph.nodes.find(n => n.id === nodeId);
       
       if (result) {
-        // Use node label as key, or node ID if no label
-        const key = node.label || node.type || nodeId;
         Object.assign(outputs, result);
       }
     }

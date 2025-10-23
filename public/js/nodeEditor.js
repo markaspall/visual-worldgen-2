@@ -730,9 +730,28 @@ export class NodeEditor {
   }
 
   drawNode(ctx, node, selected = false) {
+    // Get node category for color coding
+    const metadata = window.nodeRegistry.getMetadata(node.type);
+    const category = metadata.category;
+    
+    // Category colors
+    let borderColor = '#3a3a3a';  // Default
+    let titleBarColor = 'rgba(0, 0, 0, 0.2)';
+    
+    if (category === 'Primitives') {
+      borderColor = selected ? '#4a9eff' : '#4a7ebb';  // Blue
+      titleBarColor = 'rgba(74, 126, 187, 0.15)';
+    } else if (category === 'Processors') {
+      borderColor = selected ? '#fbbf24' : '#d97706';  // Orange
+      titleBarColor = 'rgba(251, 191, 36, 0.15)';
+    } else if (category === 'Outputs') {
+      borderColor = selected ? '#22c55e' : '#16a34a';  // Green
+      titleBarColor = 'rgba(34, 197, 94, 0.15)';
+    }
+    
     // Node background
     ctx.fillStyle = '#2d2d2d';
-    ctx.strokeStyle = selected ? '#4a9eff' : '#3a3a3a';
+    ctx.strokeStyle = borderColor;
     ctx.lineWidth = selected ? 3 : 2;
     
     this.roundRect(ctx, node.x, node.y, node.width, node.height, 8);
@@ -740,7 +759,7 @@ export class NodeEditor {
     ctx.stroke();
     
     // Title bar
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+    ctx.fillStyle = titleBarColor;
     this.roundRect(ctx, node.x, node.y, node.width, 30, 8, true);
     ctx.fill();
     
@@ -834,9 +853,13 @@ export class NodeEditor {
     
     if (!previewCanvas) return;
     
-    previewInfo.textContent = `Previewing: ${this.selectedNode.type}`;
+    previewInfo.textContent = `Previewing: ${this.selectedNode.type}...`;
     
     try {
+      // Execute dependency chain to get inputs for this node
+      const previewResolution = 256;
+      const inputs = await this.executeNodeChain(this.selectedNode.id, previewResolution);
+      
       // Get node class from registry
       const NodeClass = window.nodeRegistry.get(this.selectedNode.type);
       
@@ -846,26 +869,127 @@ export class NodeEditor {
         cache: new Map()
       });
       
-      // Execute node with current params (preview at 256x256)
-      const previewResolution = 256;
+      // Execute node with gathered inputs
       const params = {
         ...this.selectedNode.params,
         resolution: previewResolution
       };
       
-      const result = await node.process({}, params);
+      const result = await node.process(inputs, params);
       
-      // Render to canvas
-      if (result && result.noise) {
+      // Render to canvas - try multiple output types
+      let rendered = false;
+      
+      // Try visualization first (for BiomeClassifier)
+      if (result && result.visualization) {
+        this.renderRGBAToCanvas(result.visualization, previewResolution);
+        previewInfo.textContent = `Preview: ${this.selectedNode.type} - Visualization (${previewResolution}×${previewResolution})`;
+        rendered = true;
+      }
+      // Try elevation output (for Erosion, etc.)
+      else if (result && result.elevation) {
+        this.renderPreviewToCanvas(result.elevation, previewResolution);
+        previewInfo.textContent = `Preview: ${this.selectedNode.type} - Elevation (${previewResolution}×${previewResolution})`;
+        rendered = true;
+      }
+      // Try noise output (for PerlinNoise, etc.)
+      else if (result && result.noise) {
         this.renderPreviewToCanvas(result.noise, previewResolution);
-        previewInfo.textContent = `Preview: ${this.selectedNode.type} (${previewResolution}×${previewResolution})`;
-      } else {
-        previewInfo.textContent = `No preview available`;
+        previewInfo.textContent = `Preview: ${this.selectedNode.type} - Noise (${previewResolution}×${previewResolution})`;
+        rendered = true;
+      }
+      // Try generic output (for Blend, Remap, etc.)
+      else if (result && result.output) {
+        this.renderPreviewToCanvas(result.output, previewResolution);
+        previewInfo.textContent = `Preview: ${this.selectedNode.type} - Output (${previewResolution}×${previewResolution})`;
+        rendered = true;
+      }
+      
+      if (!rendered) {
+        previewInfo.textContent = `No preview available for ${this.selectedNode.type}`;
       }
     } catch (error) {
       console.error('Preview error:', error);
       previewInfo.textContent = `Error: ${error.message}`;
     }
+  }
+
+  /**
+   * Execute dependency chain for a node (for preview)
+   */
+  async executeNodeChain(targetNodeId, resolution) {
+    const executed = new Map(); // nodeId -> result
+    const previewCache = new Map(); // Shared cache for preview execution
+    
+    // Recursive function to execute node and its dependencies
+    const executeNode = async (nodeId) => {
+      // Already executed?
+      if (executed.has(nodeId)) {
+        return executed.get(nodeId);
+      }
+      
+      const node = this.nodes.get(nodeId);
+      if (!node) {
+        throw new Error(`Node ${nodeId} not found`);
+      }
+      
+      // Gather inputs from connected nodes
+      const inputs = {};
+      const incomingConnections = this.connections.filter(c => c.to === nodeId);
+      
+      for (const conn of incomingConnections) {
+        // Execute dependency first
+        const sourceResult = await executeNode(conn.from);
+        
+        // Get the output from source
+        const outputName = conn.output;
+        if (!sourceResult[outputName]) {
+          console.warn(`Source node ${conn.from} has no output '${outputName}'`);
+          continue;
+        }
+        
+        // Set as input
+        inputs[conn.input] = sourceResult[outputName];
+      }
+      
+      // Create node instance
+      const NodeClass = window.nodeRegistry.get(node.type);
+      const nodeInstance = new NodeClass({
+        isServer: false,
+        cache: previewCache
+      });
+      
+      // Execute with gathered inputs
+      const params = {
+        ...node.params,
+        resolution: resolution,
+        seed: node.params.seed || 12345,
+        offsetX: 0, // Preview at origin
+        offsetZ: 0
+      };
+      
+      const result = await nodeInstance.process(inputs, params);
+      
+      // Store result
+      executed.set(nodeId, result);
+      return result;
+    };
+    
+    // Execute target node (will recursively execute dependencies)
+    await executeNode(targetNodeId);
+    
+    // Return inputs that were gathered for the target node
+    const inputs = {};
+    const incomingConnections = this.connections.filter(c => c.to === targetNodeId);
+    
+    for (const conn of incomingConnections) {
+      const sourceResult = executed.get(conn.from);
+      if (sourceResult && sourceResult[conn.output]) {
+        inputs[conn.input] = sourceResult[conn.output];
+      }
+    }
+    
+    return inputs;
   }
 
   renderPreviewToCanvas(data, resolution) {
@@ -885,6 +1009,24 @@ export class NodeEditor {
       imageData.data[idx + 1] = value; // G
       imageData.data[idx + 2] = value; // B
       imageData.data[idx + 3] = 255;   // A
+    }
+    
+    ctx.putImageData(imageData, 0, 0);
+  }
+
+  renderRGBAToCanvas(rgbaData, resolution) {
+    const canvas = document.getElementById('preview-canvas');
+    if (!canvas) return;
+    
+    const ctx = canvas.getContext('2d');
+    canvas.width = resolution;
+    canvas.height = resolution;
+    
+    const imageData = ctx.createImageData(resolution, resolution);
+    
+    // rgbaData is already in RGBA format (Uint8ClampedArray)
+    for (let i = 0; i < rgbaData.length; i++) {
+      imageData.data[i] = rgbaData[i];
     }
     
     ctx.putImageData(imageData, 0, 0);
@@ -2117,8 +2259,8 @@ export class NodeEditor {
         y: nodeData.position?.y || 100,
         width: 200,
         height: 100,
-        inputs: metadata.inputs.map(name => ({ name, value: null })),
-        outputs: metadata.outputs.map(name => ({ name, type: 'data' })),
+        inputs: metadata.inputs || [],  // Keep as simple string array
+        outputs: metadata.outputs || [], // Keep as simple string array
         params: nodeData.params || {}
       };
 
@@ -2132,8 +2274,10 @@ export class NodeEditor {
 
       if (fromNode && toNode) {
         this.connections.push({
-          from: { nodeId: fromNode.id, outputName: connData.fromOutput },
-          to: { nodeId: toNode.id, inputName: connData.toInput }
+          from: fromNode.id,
+          to: toNode.id,
+          output: connData.output || connData.fromOutput,
+          input: connData.input || connData.toInput
         });
       }
     }

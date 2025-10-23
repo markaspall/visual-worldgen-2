@@ -6,12 +6,42 @@ import { PipelineManager } from './pipeline.js';
 // Import unified node system (served from /shared route)
 import { NodeRegistry } from '/shared/NodeRegistry.js';
 import { PerlinNoiseNode } from '/shared/nodes/primitives/PerlinNoiseNode.js';
+import { BlendNode } from '/shared/nodes/primitives/BlendNode.js';
+import { RemapNode } from '/shared/nodes/primitives/RemapNode.js';
+import { NormalizeNode } from '/shared/nodes/primitives/NormalizeNode.js';
+import { GradientNode } from '/shared/nodes/primitives/GradientNode.js';
+import { ConstantNode } from '/shared/nodes/primitives/ConstantNode.js';
+import { BiomeClassifierNode } from '/shared/nodes/processors/BiomeClassifierNode.js';
+import { DownsampleNode } from '/shared/nodes/processors/DownsampleNode.js';
+import { UpsampleNode } from '/shared/nodes/processors/UpsampleNode.js';
+import { HydraulicErosionNode } from '/shared/nodes/processors/HydraulicErosionNode.js';
+import { ElevationOutputNode } from '/shared/nodes/outputs/ElevationOutputNode.js';
 
 // Create global registry for browser
 window.nodeRegistry = new NodeRegistry();
-window.nodeRegistry.register(PerlinNoiseNode);
 
-console.log('📦 Registered nodes:', window.nodeRegistry.getTypes());
+// Register all primitives
+window.nodeRegistry.register(PerlinNoiseNode);
+window.nodeRegistry.register(BlendNode);
+window.nodeRegistry.register(RemapNode);
+window.nodeRegistry.register(NormalizeNode);
+window.nodeRegistry.register(GradientNode);
+window.nodeRegistry.register(ConstantNode);
+
+// Register processors
+window.nodeRegistry.register(BiomeClassifierNode);
+window.nodeRegistry.register(DownsampleNode);
+window.nodeRegistry.register(UpsampleNode);
+window.nodeRegistry.register(HydraulicErosionNode);
+// window.nodeRegistry.register(BlockClassifierNode); // Coming next
+
+// Register outputs
+window.nodeRegistry.register(ElevationOutputNode);
+
+console.log('📦 Frontend registered nodes:', window.nodeRegistry.getTypes());
+console.log('   Primitives:', window.nodeRegistry.getByCategory('Primitives').join(', '));
+console.log('   Processors:', window.nodeRegistry.getByCategory('Processors').join(', '));
+console.log('   Outputs:', window.nodeRegistry.getByCategory('Outputs').join(', '));
 
 class App {
   constructor() {

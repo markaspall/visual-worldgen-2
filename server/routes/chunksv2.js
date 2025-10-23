@@ -14,6 +14,16 @@ import { metrics } from './monitor.js';
 import { NodeRegistry } from '../../shared/NodeRegistry.js';
 import { GraphExecutor } from '../../shared/GraphExecutor.js';
 import { PerlinNoiseNode } from '../../shared/nodes/primitives/PerlinNoiseNode.js';
+import { BlendNode } from '../../shared/nodes/primitives/BlendNode.js';
+import { RemapNode } from '../../shared/nodes/primitives/RemapNode.js';
+import { NormalizeNode } from '../../shared/nodes/primitives/NormalizeNode.js';
+import { GradientNode } from '../../shared/nodes/primitives/GradientNode.js';
+import { ConstantNode } from '../../shared/nodes/primitives/ConstantNode.js';
+import { BiomeClassifierNode } from '../../shared/nodes/processors/BiomeClassifierNode.js';
+import { DownsampleNode } from '../../shared/nodes/processors/DownsampleNode.js';
+import { UpsampleNode } from '../../shared/nodes/processors/UpsampleNode.js';
+import { HydraulicErosionNode } from '../../shared/nodes/processors/HydraulicErosionNode.js';
+import { ElevationOutputNode } from '../../shared/nodes/outputs/ElevationOutputNode.js';
 import { nodeMonitor } from '../lib/NodeMonitor.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -36,9 +46,27 @@ global.nodeMonitor = nodeMonitor;
 const registry = new NodeRegistry();
 
 // Register all available nodes
+// Primitives
 registry.register(PerlinNoiseNode);
+registry.register(BlendNode);
+registry.register(RemapNode);
+registry.register(NormalizeNode);
+registry.register(GradientNode);
+registry.register(ConstantNode);
+
+// Processors
+registry.register(BiomeClassifierNode);
+registry.register(DownsampleNode);
+registry.register(UpsampleNode);
+registry.register(HydraulicErosionNode);
+
+// Outputs
+registry.register(ElevationOutputNode);
 
 console.log('📦 Registered nodes:', registry.getTypes());
+console.log('   Primitives:', registry.getByCategory('Primitives').join(', '));
+console.log('   Processors:', registry.getByCategory('Processors').join(', '));
+console.log('   Outputs:', registry.getByCategory('Outputs').join(', '));
 
 // Graph executor
 const executor = new GraphExecutor(registry, {
@@ -110,19 +138,21 @@ async function getRegion(regionX, regionZ, seed) {
   const graph = await loadPipeline();
 
   // Execute graph
+  // Convert region indices to world coordinates (each region is 512x512)
   const result = await executor.execute(graph, {
     seed,
-    offsetX: regionX,
-    offsetZ: regionZ,
+    offsetX: regionX * 512,
+    offsetZ: regionZ * 512,
     resolution: 512
   });
 
   // Extract heightmap from result
-  // The output will be in result.outputs.noise (from PerlinNoiseNode)
-  const heightmap = result.outputs.noise;
+  // Try to get elevation output, fall back to noise for backwards compatibility
+  const heightmap = result.outputs.elevation || result.outputs.noise || result.outputs.output;
 
   if (!heightmap) {
-    throw new Error('Pipeline did not produce heightmap output');
+    console.error('Available outputs:', Object.keys(result.outputs));
+    throw new Error('Pipeline did not produce heightmap output (expected "elevation", "noise", or "output")');
   }
 
   const regionData = {
