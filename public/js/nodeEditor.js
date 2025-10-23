@@ -1956,4 +1956,148 @@ export class NodeEditor {
     }
     this.animationCleanups.push(stopAnimation);
   }
+
+  /**
+   * Add node from palette (unified node system)
+   */
+  addNodeFromPalette(nodeType) {
+    const metadata = window.nodeRegistry.getMetadata(nodeType);
+    
+    // Create node at center of viewport
+    const centerX = -this.offset.x / this.scale + (this.canvas.width / 2) / this.scale;
+    const centerY = -this.offset.y / this.scale + (this.canvas.height / 2) / this.scale;
+    
+    const node = {
+      id: `node_${this.nodeIdCounter++}`,
+      type: nodeType,
+      displayName: metadata.displayName,
+      x: centerX - 100,
+      y: centerY - 50,
+      width: 200,
+      height: 100,
+      inputs: metadata.inputs.map(name => ({ name, value: null })),
+      outputs: metadata.outputs.map(name => ({ name, type: 'data' })),
+      params: {}
+    };
+
+    // Set default parameters
+    for (const [paramName, paramConfig] of Object.entries(metadata.params)) {
+      node.params[paramName] = paramConfig.default;
+    }
+
+    this.nodes.set(node.id, node);
+    this.render();
+    
+    console.log(`Added node: ${nodeType} (${node.id})`);
+  }
+
+  /**
+   * Clear all nodes and connections
+   */
+  clear() {
+    this.nodes.clear();
+    this.connections = [];
+    this.selectedNode = null;
+    this.render();
+    console.log('Cleared all nodes');
+  }
+
+  /**
+   * Auto-layout nodes
+   */
+  autoLayout() {
+    if (this.nodes.size === 0) return;
+
+    const SPACING_X = 300;
+    const SPACING_Y = 150;
+    let x = 100;
+    let y = 100;
+    let col = 0;
+
+    for (const node of this.nodes.values()) {
+      node.x = x;
+      node.y = y;
+
+      y += SPACING_Y;
+      col++;
+
+      if (col >= 3) {
+        col = 0;
+        x += SPACING_X;
+        y = 100;
+      }
+    }
+
+    this.render();
+    console.log('Auto-layout applied');
+  }
+
+  /**
+   * Get graph for saving/execution
+   */
+  getGraph() {
+    const nodes = [];
+    for (const node of this.nodes.values()) {
+      nodes.push({
+        id: node.id,
+        type: node.type,
+        params: node.params,
+        position: { x: node.x, y: node.y },
+        displayName: node.displayName
+      });
+    }
+
+    return {
+      nodes,
+      connections: this.connections.map(conn => ({
+        from: conn.from.nodeId,
+        fromOutput: conn.from.outputName,
+        to: conn.to.nodeId,
+        toInput: conn.to.inputName
+      }))
+    };
+  }
+
+  /**
+   * Load graph
+   */
+  loadGraph(graph) {
+    this.clear();
+
+    // Add nodes
+    for (const nodeData of graph.nodes) {
+      const metadata = window.nodeRegistry.getMetadata(nodeData.type);
+      
+      const node = {
+        id: nodeData.id,
+        type: nodeData.type,
+        displayName: nodeData.displayName || metadata.displayName,
+        x: nodeData.position?.x || 100,
+        y: nodeData.position?.y || 100,
+        width: 200,
+        height: 100,
+        inputs: metadata.inputs.map(name => ({ name, value: null })),
+        outputs: metadata.outputs.map(name => ({ name, type: 'data' })),
+        params: nodeData.params || {}
+      };
+
+      this.nodes.set(node.id, node);
+    }
+
+    // Add connections
+    for (const connData of graph.connections) {
+      const fromNode = this.nodes.get(connData.from);
+      const toNode = this.nodes.get(connData.to);
+
+      if (fromNode && toNode) {
+        this.connections.push({
+          from: { nodeId: fromNode.id, outputName: connData.fromOutput },
+          to: { nodeId: toNode.id, inputName: connData.toInput }
+        });
+      }
+    }
+
+    this.render();
+    console.log(`Loaded graph with ${graph.nodes.length} nodes`);
+  }
 }

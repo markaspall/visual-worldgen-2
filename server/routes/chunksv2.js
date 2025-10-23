@@ -146,6 +146,43 @@ async function getRegion(worldId, regionX, regionZ, seed) {
  * GET /api/v2/worlds/:worldId/chunks/:x/:y/:z
  * Get a single stream chunk (32x32x32 SVDAG) using V2 pipeline
  */
+/**
+ * POST /api/v2/worlds/:worldId/pipeline
+ * Save pipeline graph to world directory
+ */
+router.post('/worlds/:worldId/pipeline', async (req, res) => {
+  try {
+    const { worldId } = req.params;
+    const { nodes, connections, metadata } = req.body;
+
+    const worldDir = path.join(path.dirname(__dirname), '../storage/worlds', worldId);
+    const pipelinePath = path.join(worldDir, 'pipeline.json');
+
+    // Create world directory if it doesn't exist
+    await fs.mkdir(worldDir, { recursive: true });
+
+    // Save pipeline
+    const pipelineData = {
+      nodes,
+      connections,
+      metadata
+    };
+
+    await fs.writeFile(pipelinePath, JSON.stringify(pipelineData, null, 2));
+
+    console.log(`✅ Saved pipeline for world '${worldId}' (${nodes.length} nodes)`);
+
+    res.json({ success: true, worldId, nodeCount: nodes.length });
+  } catch (error) {
+    console.error('Error saving pipeline:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * GET /api/v2/worlds/:worldId/chunks/:x/:y/:z
+ * Get a single stream chunk (32x32x32 SVDAG) using V2 pipeline
+ */
 router.get('/worlds/:worldId/chunks/:x/:y/:z', async (req, res) => {
   // Wrap entire handler to catch sync GPU errors
   try {

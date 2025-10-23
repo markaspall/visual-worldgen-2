@@ -3,6 +3,16 @@ import { NodeEditor } from './nodeEditor.js';
 import { Visualizer } from './visualizer.js';
 import { PipelineManager } from './pipeline.js';
 
+// Import unified node system
+import { NodeRegistry } from '../../shared/NodeRegistry.js';
+import { PerlinNoiseNode } from '../../shared/nodes/primitives/PerlinNoiseNode.js';
+
+// Create global registry for browser
+window.nodeRegistry = new NodeRegistry();
+window.nodeRegistry.register(PerlinNoiseNode);
+
+console.log('📦 Registered nodes:', window.nodeRegistry.getTypes());
+
 class App {
   constructor() {
     this.gpu = null;
@@ -150,6 +160,93 @@ class App {
         this.stopAutoGenerate();
       }
     });
+
+    // Add Node button
+    const btnAddNode = document.getElementById('btn-add-node');
+    if (btnAddNode) {
+      btnAddNode.addEventListener('click', () => {
+        this.showNodePalette();
+      });
+    }
+
+    // Clear button
+    const btnClear = document.getElementById('btn-clear');
+    if (btnClear) {
+      btnClear.addEventListener('click', () => {
+        if (confirm('Clear all nodes and connections?')) {
+          this.editor.clear();
+        }
+      });
+    }
+
+    // Auto Layout button
+    const btnAutoLayout = document.getElementById('btn-auto-layout');
+    if (btnAutoLayout) {
+      btnAutoLayout.addEventListener('click', () => {
+        this.editor.autoLayout();
+      });
+    }
+  }
+
+  showNodePalette() {
+    const palette = document.createElement('div');
+    palette.className = 'node-palette-overlay';
+    palette.innerHTML = `
+      <div class="node-palette">
+        <div class="palette-header">
+          <h3>Add Node</h3>
+          <button class="close-btn">&times;</button>
+        </div>
+        <div class="palette-body">
+          <div class="palette-category">
+            <h4>🧱 Primitives</h4>
+            <div class="palette-nodes" id="primitives-list"></div>
+          </div>
+          <div class="palette-category">
+            <h4>⚙️ Processors</h4>
+            <div class="palette-nodes" id="processors-list"></div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    // Populate node lists from registry
+    const primitivesList = palette.querySelector('#primitives-list');
+    const processorsList = palette.querySelector('#processors-list');
+
+    window.nodeRegistry.getTypes().forEach(type => {
+      const metadata = window.nodeRegistry.getMetadata(type);
+      const nodeBtn = document.createElement('button');
+      nodeBtn.className = 'palette-node-btn';
+      nodeBtn.innerHTML = `
+        <div class="node-name">${metadata.displayName}</div>
+        <div class="node-desc">${metadata.description}</div>
+      `;
+      nodeBtn.addEventListener('click', () => {
+        this.editor.addNodeFromPalette(type);
+        document.body.removeChild(palette);
+      });
+
+      if (metadata.category === 'Primitives') {
+        primitivesList.appendChild(nodeBtn);
+      } else {
+        processorsList.appendChild(nodeBtn);
+      }
+    });
+
+    // Close button
+    palette.querySelector('.close-btn').addEventListener('click', () => {
+      document.body.removeChild(palette);
+    });
+
+    // Click outside to close
+    palette.addEventListener('click', (e) => {
+      if (e.target === palette) {
+        document.body.removeChild(palette);
+      }
+    });
+
+    document.body.appendChild(palette);
   }
 
   startAutoGenerate() {
@@ -254,19 +351,25 @@ class App {
   async save() {
     try {
       const graph = this.editor.getGraph();
-      const timestamp = new Date().toLocaleString();
       
-      const response = await fetch('/api/save', {
+      // Ask for world ID
+      const worldId = prompt('Enter world ID (e.g., test_world, my_terrain):',  'test_world');
+      
+      if (!worldId || worldId.trim() === '') {
+        return; // Cancelled
+      }
+
+      // Save pipeline to world directory
+      const response = await fetch(`/api/v2/worlds/${worldId}/pipeline`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          graph: {
-            ...graph,
-            seed: this.pipeline.seed,
-            resolution: this.pipeline.resolution,
-            savedAt: timestamp,
+          nodes: graph.nodes,
+          connections: graph.connections,
+          metadata: {
+            savedAt: new Date().toISOString(),
             nodeCount: graph.nodes.length,
             connectionCount: graph.connections.length
           }
@@ -275,8 +378,8 @@ class App {
 
       const result = await response.json();
       if (result.success) {
-        this.updateStatus(`Graph saved: ${result.id}`, 'success');
-        alert(`✅ Graph Saved Successfully!\n\nID: ${result.id}\nNodes: ${graph.nodes.length}\nConnections: ${graph.connections.length}\nTime: ${timestamp}`);
+        this.updateStatus(`Pipeline saved to ${worldId}`, 'success');
+        alert(`✅ Pipeline Saved to World!\n\nWorld: ${worldId}\nNodes: ${graph.nodes.length}\nConnections: ${graph.connections.length}\n\n🎮 To see it in action:\nhttp://localhost:3012/worlds/${worldId}/infinite`);
       } else {
         throw new Error(result.error);
       }

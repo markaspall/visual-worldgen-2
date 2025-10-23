@@ -1,12 +1,14 @@
-﻿# Dependencies
+# Dependencies
 node_modules/
 package-lock.json
 
-# Storage (generated data)
-storage/worlds/*
-storage/graphs/*
-!storage/worlds/.gitkeep
-!storage/graphs/.gitkeep
+# Cache directories (generated data)
+storage/cache/
+storage/chunks/
+
+# Keep world definitions and graphs (these are source files!)
+# storage/worlds/ - committed
+# storage/graphs/ - committed
 
 # Logs
 *.log
